@@ -1,0 +1,9 @@
+pandas
+numpy
+requests
+folium
+polyline
+tqdm
+openpyxl
+scikit-learn
+scipy
