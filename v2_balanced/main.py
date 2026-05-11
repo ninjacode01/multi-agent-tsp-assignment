@@ -19,7 +19,6 @@ from scipy.spatial.distance import cdist
 # =========================================================
 
 FILE_PATH = "../TSP1.xlsx"
-
 OSRM_URL = "http://router.project-osrm.org"
 
 MAX_BALANCE_ITERATIONS = 15
@@ -33,25 +32,13 @@ print("\n" + "=" * 60)
 print("LOADING DATA")
 print("=" * 60)
 
-locations_df = pd.read_excel(
-    FILE_PATH,
-    sheet_name="Lat-Long"
-)
+locations_df = pd.read_excel(FILE_PATH, sheet_name="Lat-Long")
+agents_df = pd.read_excel(FILE_PATH, sheet_name="TSP agents")
 
-agents_df = pd.read_excel(
-    FILE_PATH,
-    sheet_name="TSP agents"
-)
-
-locations_df = locations_df.dropna(
-    subset=["Latitude", "Longitude"]
-).reset_index(drop=True)
+locations_df = locations_df.dropna(subset=["Latitude", "Longitude"]).reset_index(drop=True)
 
 NUM_AGENTS = len(agents_df)
-
-coords = locations_df[
-    ["Latitude", "Longitude"]
-].values
+coords = locations_df[["Latitude", "Longitude"]].values
 
 print(f"Locations : {len(locations_df)}")
 print(f"Agents    : {NUM_AGENTS}")
@@ -64,61 +51,29 @@ print("\n" + "=" * 60)
 print("CREATING INITIAL CLUSTERS")
 print("=" * 60)
 
-kmeans = KMeans(
-    n_clusters=NUM_AGENTS,
-    random_state=42,
-    n_init=20
-)
-
+kmeans = KMeans(n_clusters=NUM_AGENTS, random_state=42, n_init=20)
 locations_df["cluster"] = kmeans.fit_predict(coords)
 
 # =========================================================
 # SAFE OSRM DISTANCE MATRIX
 # =========================================================
 
-def get_osrm_distance_matrix(
-    cluster_points,
-    max_retries=5,
-    sleep_time=2
-):
+def get_osrm_distance_matrix(cluster_points, max_retries=5, sleep_time=2):
 
     n = len(cluster_points)
-
     matrix = np.zeros((n, n))
-
     BATCH_SIZE = 25
 
-    for i_start in tqdm(
-        range(0, n, BATCH_SIZE),
-        desc="OSRM Requests",
-        leave=False,
-        colour="yellow"
-    ):
+    for i_start in tqdm(range(0, n, BATCH_SIZE), desc="OSRM Requests", leave=False, colour="yellow"):
 
         i_end = min(i_start + BATCH_SIZE, n)
 
-        sources = list(
-            range(i_start, i_end)
-        )
+        sources = list(range(i_start, i_end))
+        destinations = list(range(n))
 
-        destinations = list(
-            range(n)
-        )
-
-        coords_str = ";".join(
-            [
-                f"{lon},{lat}"
-                for lat, lon in cluster_points
-            ]
-        )
-
-        source_str = ";".join(
-            map(str, sources)
-        )
-
-        dest_str = ";".join(
-            map(str, destinations)
-        )
+        coords_str = ";".join([f"{lon},{lat}" for lat, lon in cluster_points])
+        source_str = ";".join(map(str, sources))
+        dest_str = ";".join(map(str, destinations))
 
         url = (
             f"{OSRM_URL}/table/v1/driving/"
@@ -134,49 +89,28 @@ def get_osrm_distance_matrix(
 
             try:
 
-                response = requests.get(
-                    url,
-                    timeout=60
-                )
+                response = requests.get(url, timeout=60)
 
                 if response.status_code == 200:
 
                     data = response.json()
+                    distances = np.array(data["distances"]) / 1000.0
 
-                    distances = np.array(
-                        data["distances"]
-                    ) / 1000.0
-
-                    matrix[
-                        i_start:i_end,
-                        :
-                    ] = distances
-
+                    matrix[i_start:i_end, :] = distances
                     success = True
 
                     break
 
                 else:
-
-                    print(
-                        f"\nOSRM Error "
-                        f"{response.status_code}"
-                    )
+                    print(f"\nOSRM Error {response.status_code}")
 
             except Exception as e:
-
-                print(
-                    f"\nRetry {attempt+1}: {e}"
-                )
+                print(f"\nRetry {attempt+1}: {e}")
 
             time.sleep(sleep_time)
 
         if not success:
-
-            raise Exception(
-                "OSRM request failed "
-                "after retries"
-            )
+            raise Exception("OSRM request failed after retries")
 
         time.sleep(1.5)
 
@@ -189,22 +123,16 @@ def get_osrm_distance_matrix(
 def nearest_neighbor_route(distance_matrix):
 
     n = len(distance_matrix)
-
     unvisited = set(range(1, n))
-
     route = [0]
 
     while unvisited:
 
         last = route[-1]
 
-        next_city = min(
-            unvisited,
-            key=lambda x: distance_matrix[last][x]
-        )
+        next_city = min(unvisited, key=lambda x: distance_matrix[last][x])
 
         route.append(next_city)
-
         unvisited.remove(next_city)
 
     route.append(0)
@@ -220,12 +148,7 @@ def compute_route_distance(route, matrix):
     total = 0
 
     for i in range(len(route) - 1):
-
-        total += matrix[
-            route[i]
-        ][
-            route[i + 1]
-        ]
+        total += matrix[route[i]][route[i + 1]]
 
     return total
 
@@ -236,22 +159,12 @@ def compute_route_distance(route, matrix):
 def two_opt(route, matrix):
 
     best = route
-
-    best_distance = compute_route_distance(
-        best,
-        matrix
-    )
+    best_distance = compute_route_distance(best, matrix)
 
     improved = True
-
     iteration = 0
 
-    with tqdm(
-        total=MAX_2OPT_ITERATIONS,
-        desc="2-Opt",
-        leave=False,
-        colour="green"
-    ) as pbar:
+    with tqdm(total=MAX_2OPT_ITERATIONS, desc="2-Opt", leave=False, colour="green") as pbar:
 
         while improved and iteration < MAX_2OPT_ITERATIONS:
 
@@ -264,16 +177,8 @@ def two_opt(route, matrix):
                     if j - i == 1:
                         continue
 
-                    new_route = (
-                        best[:i]
-                        + best[i:j][::-1]
-                        + best[j:]
-                    )
-
-                    new_distance = compute_route_distance(
-                        new_route,
-                        matrix
-                    )
+                    new_route = best[:i] + best[i:j][::-1] + best[j:]
+                    new_distance = compute_route_distance(new_route, matrix)
 
                     if new_distance < best_distance:
 
@@ -298,55 +203,25 @@ def balance_clusters(df):
 
     target = len(df) / NUM_AGENTS
 
-    for iteration in tqdm(
-        range(MAX_BALANCE_ITERATIONS),
-        desc="Balancing",
-        colour="cyan"
-    ):
+    for iteration in tqdm(range(MAX_BALANCE_ITERATIONS), desc="Balancing", colour="cyan"):
 
-        cluster_sizes = (
-            df["cluster"]
-            .value_counts()
-            .to_dict()
-        )
+        cluster_sizes = df["cluster"].value_counts().to_dict()
 
-        over_clusters = [
-            c for c, size in cluster_sizes.items()
-            if size > target + 1
-        ]
-
-        under_clusters = [
-            c for c, size in cluster_sizes.items()
-            if size < target - 1
-        ]
+        over_clusters = [c for c, size in cluster_sizes.items() if size > target + 1]
+        under_clusters = [c for c, size in cluster_sizes.items() if size < target - 1]
 
         if not over_clusters or not under_clusters:
             break
 
         for over in over_clusters:
 
-            over_points = df[
-                df["cluster"] == over
-            ]
+            over_points = df[df["cluster"] == over]
 
-            centroid_over = (
-                over_points[
-                    ["Latitude", "Longitude"]
-                ]
-                .mean()
-                .values
-            )
+            centroid_over = over_points[["Latitude", "Longitude"]].mean().values
 
-            distances = cdist(
-                over_points[
-                    ["Latitude", "Longitude"]
-                ],
-                [centroid_over]
-            ).flatten()
+            distances = cdist(over_points[["Latitude", "Longitude"]], [centroid_over]).flatten()
 
-            farthest_idx = over_points.index[
-                np.argmax(distances)
-            ]
+            farthest_idx = over_points.index[np.argmax(distances)]
 
             candidate = df.loc[farthest_idx]
 
@@ -355,69 +230,38 @@ def balance_clusters(df):
 
             for under in under_clusters:
 
-                under_points = df[
-                    df["cluster"] == under
-                ]
+                under_points = df[df["cluster"] == under]
 
-                centroid_under = (
-                    under_points[
-                        ["Latitude", "Longitude"]
-                    ]
-                    .mean()
-                    .values
-                )
+                centroid_under = under_points[["Latitude", "Longitude"]].mean().values
 
-                d = np.linalg.norm(
-                    candidate[
-                        ["Latitude", "Longitude"]
-                    ].values - centroid_under
-                )
+                d = np.linalg.norm(candidate[["Latitude", "Longitude"]].values - centroid_under)
 
                 if d < best_distance:
-
                     best_distance = d
                     best_cluster = under
 
             if best_cluster is not None:
-
-                df.at[
-                    farthest_idx,
-                    "cluster"
-                ] = best_cluster
+                df.at[farthest_idx, "cluster"] = best_cluster
 
     return df
 
-locations_df = balance_clusters(
-    locations_df
-)
+locations_df = balance_clusters(locations_df)
 
 # =========================================================
 # CREATE MAP
 # =========================================================
 
-center_lat = locations_df[
-    "Latitude"
-].mean()
+center_lat = locations_df["Latitude"].mean()
+center_lon = locations_df["Longitude"].mean()
 
-center_lon = locations_df[
-    "Longitude"
-].mean()
-
-m = folium.Map(
-    location=[center_lat, center_lon],
-    zoom_start=10
-)
+m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
 
 # =========================================================
 # RANDOM COLORS
 # =========================================================
 
 def random_color():
-
-    return "#%06x" % random.randint(
-        0,
-        0xFFFFFF
-    )
+    return "#%06x" % random.randint(0, 0xFFFFFF)
 
 # =========================================================
 # PROCESS AGENTS
@@ -428,76 +272,51 @@ print("STARTING ROUTE OPTIMIZATION")
 print("=" * 60)
 
 results = []
-
 all_agent_routes = {}
 
-agent_progress = tqdm(
-    range(NUM_AGENTS),
-    desc="Agents",
-    colour="magenta"
-)
+agent_progress = tqdm(range(NUM_AGENTS), desc="Agents", colour="magenta")
 
 for cluster_id in agent_progress:
 
-    cluster_df = locations_df[
-        locations_df["cluster"] == cluster_id
-    ].reset_index(drop=True)
+    cluster_df = locations_df[locations_df["cluster"] == cluster_id].reset_index(drop=True)
 
     if len(cluster_df) <= 2:
         continue
 
-    agent_name = agents_df.iloc[
-        cluster_id
-    ]["Agent Name"]
+    agent_name = agents_df.iloc[cluster_id]["Agent Name"]
 
-    agent_progress.set_postfix_str(
-        f"{agent_name}"
-    )
+    agent_progress.set_postfix_str(f"{agent_name}")
 
-    cluster_points = cluster_df[
-        ["Latitude", "Longitude"]
-    ].values
+    cluster_points = cluster_df[["Latitude", "Longitude"]].values
 
     # =====================================================
     # DISTANCE MATRIX
     # =====================================================
 
-    matrix = get_osrm_distance_matrix(
-        cluster_points
-    )
+    matrix = get_osrm_distance_matrix(cluster_points)
 
     # =====================================================
     # INITIAL ROUTE
     # =====================================================
 
-    initial_route = nearest_neighbor_route(
-        matrix
-    )
+    initial_route = nearest_neighbor_route(matrix)
 
     # =====================================================
     # OPTIMIZATION
     # =====================================================
 
-    optimized_route, total_distance = two_opt(
-        initial_route,
-        matrix
-    )
+    optimized_route, total_distance = two_opt(initial_route, matrix)
 
     # =====================================================
     # BUILD ROUTE
     # =====================================================
 
     route_coords = []
-
     ordered_rows = []
 
-    for stop_number, idx in enumerate(
-        optimized_route[:-1],
-        start=1
-    ):
+    for stop_number, idx in enumerate(optimized_route[:-1], start=1):
 
         row = cluster_df.iloc[idx].copy()
-
         row["Visit_Order"] = stop_number
 
         ordered_rows.append(row)
@@ -505,19 +324,13 @@ for cluster_id in agent_progress:
         lat = cluster_points[idx][0]
         lon = cluster_points[idx][1]
 
-        route_coords.append(
-            (lat, lon)
-        )
+        route_coords.append((lat, lon))
 
     route_coords.append(route_coords[0])
 
-    ordered_df = pd.DataFrame(
-        ordered_rows
-    )
+    ordered_df = pd.DataFrame(ordered_rows)
 
-    all_agent_routes[
-        f"Agent_{cluster_id+1}"
-    ] = {
+    all_agent_routes[f"Agent_{cluster_id+1}"] = {
         "agent_name": agent_name,
         "data": ordered_df
     }
@@ -533,10 +346,7 @@ for cluster_id in agent_progress:
         color=color,
         weight=4,
         opacity=0.8,
-        tooltip=(
-            f"{agent_name}"
-            f" | {total_distance:.2f} km"
-        )
+        tooltip=f"{agent_name} | {total_distance:.2f} km"
     ).add_to(m)
 
     for lat, lon in route_coords:
@@ -555,10 +365,7 @@ for cluster_id in agent_progress:
     results.append({
         "Agent": agent_name,
         "Stops": len(cluster_points),
-        "Distance_KM": round(
-            total_distance,
-            2
-        )
+        "Distance_KM": round(total_distance, 2)
     })
 
 # =========================================================
@@ -575,15 +382,8 @@ print("\n" + "=" * 60)
 print("SAVING SUMMARY")
 print("=" * 60)
 
-results_df.to_excel(
-    "agent_route_summary.xlsx",
-    index=False
-)
-
-results_df.to_csv(
-    "agent_route_summary.csv",
-    index=False
-)
+results_df.to_excel("agent_route_summary.xlsx", index=False)
+results_df.to_csv("agent_route_summary.csv", index=False)
 
 # =========================================================
 # SAVE FULL ROUTES WORKBOOK
@@ -593,38 +393,25 @@ print("\n" + "=" * 60)
 print("SAVING FULL ROUTES")
 print("=" * 60)
 
-with pd.ExcelWriter(
-    "full_agent_routes.xlsx",
-    engine="openpyxl"
-) as writer:
+with pd.ExcelWriter("full_agent_routes.xlsx", engine="openpyxl") as writer:
 
     for sheet_name, info in all_agent_routes.items():
 
         agent_name = info["agent_name"]
-
         df_sheet = info["data"]
 
-        # write dataframe starting lower
-        df_sheet.to_excel(
-            writer,
-            sheet_name=sheet_name,
-            startrow=2,
-            index=False
-        )
+        df_sheet.to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
 
         workbook = writer.book
         worksheet = writer.sheets[sheet_name]
 
-        # header
         worksheet["A1"] = f"Agent Name: {agent_name}"
 
 # =========================================================
 # SAVE MAP
 # =========================================================
 
-m.save(
-    "multi_agent_tsp_map.html"
-)
+m.save("multi_agent_tsp_map.html")
 
 # =========================================================
 # FINAL SUMMARY
